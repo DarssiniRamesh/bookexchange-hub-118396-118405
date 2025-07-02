@@ -1,0 +1,442 @@
+openapi: 3.0.3
+info:
+  title: Book Exchange Hub API
+  version: "1.0.0"
+  description: |
+    REST API for book swapping, user authentication, buying, swaps, and user dashboard
+servers:
+  - url: / # Backend base
+tags:
+  - name: Authentication
+  - name: Books
+  - name: Swaps
+  - name: Purchases
+  - name: Dashboard
+  - name: Health
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    UserResponse:
+      type: object
+      properties:
+        id: { type: integer }
+        username: { type: string }
+        email: { type: string, format: email }
+        is_active: { type: boolean }
+        created_at: { type: string, format: date-time }
+    Token:
+      type: object
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, default: bearer }
+    BookOut:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        author: { type: string }
+        description: { type: string, nullable: true }
+        image_url: { type: string, nullable: true }
+        category: { type: string, nullable: true }
+        owner_id: { type: integer }
+        is_available: { type: boolean }
+        is_for_sale: { type: boolean }
+        price: { type: number, format: float, nullable: true }
+    BookCreate:
+      allOf:
+        - $ref: "#/components/schemas/BookOut"
+      required:
+        - title
+        - author
+    BookUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        author: { type: string }
+        description: { type: string }
+        image_url: { type: string }
+        category: { type: string }
+        is_available: { type: boolean }
+        is_for_sale: { type: boolean }
+        price: { type: number, format: float }
+    SwapRequestIn:
+      type: object
+      properties:
+        book_id: { type: integer }
+        owner_id: { type: integer }
+      required: [book_id, owner_id]
+    SwapStatusEnum:
+      type: string
+      enum: [pending, accepted, rejected, cancelled]
+    SwapRequestStatusUpdate:
+      type: object
+      properties:
+        status:
+          $ref: "#/components/schemas/SwapStatusEnum"
+      required: [status]
+    SwapRequestOut:
+      type: object
+      properties:
+        id: { type: integer }
+        book_id: { type: integer }
+        requester_id: { type: integer }
+        book_owner_id: { type: integer }
+        status: { $ref: "#/components/schemas/SwapStatusEnum" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    PurchaseStatusEnum:
+      type: string
+      enum: [pending, completed, failed]
+    PurchaseRequest:
+      type: object
+      properties:
+        book_id: { type: integer }
+        amount: { type: number, format: float }
+      required: [book_id, amount]
+    PurchaseOut:
+      type: object
+      properties:
+        id: { type: integer }
+        buyer_id: { type: integer }
+        book_id: { type: integer }
+        status: { $ref: "#/components/schemas/PurchaseStatusEnum" }
+        stripe_payment_intent_id: { type: string, nullable: true }
+        amount: { type: number, format: float }
+        purchased_at: { type: string, format: date-time }
+    UserHistory:
+      type: object
+      properties:
+        books:
+          type: array
+          items: { $ref: "#/components/schemas/BookOut" }
+        swaps:
+          type: array
+          items: { $ref: "#/components/schemas/SwapRequestOut" }
+        purchases:
+          type: array
+          items: { $ref: "#/components/schemas/PurchaseOut" }
+
+
+paths:
+
+  /:
+    get:
+      tags: [Health]
+      summary: Health check
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+
+  /auth/signup:
+    post:
+      tags: [Authentication]
+      summary: Create new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 6 }
+              required: [username, email, password]
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        '409':
+          description: Email or username in use
+
+  /auth/token:
+    post:
+      tags: [Authentication]
+      summary: Obtain JWT
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                username: { type: string, format: email }
+                password: { type: string }
+              required: [username, password]
+      responses:
+        '200':
+          description: Bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Token"
+        '401':
+          description: Unauthorized
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      security: [{ BearerAuth: [] }]
+      summary: Get current user
+      responses:
+        '200':
+          description: Your user details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserResponse"
+        '401':
+          description: Unauthorized
+
+  /books/:
+    get:
+      tags: [Books]
+      summary: List all books
+      parameters:
+        - in: query
+          name: category
+          schema: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: for_sale
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: List of books
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BookOut"
+
+    post:
+      tags: [Books]
+      security: [{ BearerAuth: [] }]
+      summary: Create a book
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookCreate"
+      responses:
+        '200':
+          description: Created book
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookOut"
+        '401':
+          description: Unauthorized
+
+  /books/{book_id}:
+    get:
+      tags: [Books]
+      summary: Get book details
+      parameters:
+        - name: book_id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '200':
+          description: Book
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookOut"
+        '404':
+          description: Not found
+
+    put:
+      tags: [Books]
+      security: [{ BearerAuth: [] }]
+      summary: Update a book
+      parameters:
+        - name: book_id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BookUpdate"
+      responses:
+        '200':
+          description: Updated book
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookOut"
+        '404':
+          description: Book not found or not authorized
+
+    delete:
+      tags: [Books]
+      security: [{ BearerAuth: [] }]
+      summary: Delete book
+      parameters:
+        - name: book_id
+          in: path
+          required: true
+          schema: { type: integer }
+      responses:
+        '204':
+          description: Deleted
+        '404':
+          description: Not found or not authorized
+
+  /swaps/:
+    get:
+      tags: [Swaps]
+      summary: List all swap requests (admin)
+      responses:
+        '200':
+          description: List swaps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SwapRequestOut"
+
+    post:
+      tags: [Swaps]
+      security: [{ BearerAuth: [] }]
+      summary: Request a swap
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SwapRequestIn"
+      responses:
+        '200':
+          description: Swap created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SwapRequestOut"
+
+  /swaps/my:
+    get:
+      tags: [Swaps]
+      security: [{ BearerAuth: [] }]
+      summary: Your outgoing swap requests
+      responses:
+        '200':
+          description: List of swaps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SwapRequestOut"
+
+  /swaps/received:
+    get:
+      tags: [Swaps]
+      security: [{ BearerAuth: [] }]
+      summary: Swaps you have received
+      responses:
+        '200':
+          description: Received swaps
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SwapRequestOut"
+
+  /swaps/{swap_id}/status:
+    put:
+      tags: [Swaps]
+      security: [{ BearerAuth: [] }]
+      summary: Update swap status (accept/reject/cancel)
+      parameters:
+        - name: swap_id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SwapRequestStatusUpdate"
+      responses:
+        '200':
+          description: Status changed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SwapRequestOut"
+
+  /purchases/:
+    post:
+      tags: [Purchases]
+      security: [{ BearerAuth: [] }]
+      summary: Make a purchase (stub)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseRequest"
+      responses:
+        '200':
+          description: Purchase record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseOut"
+
+  /purchases/my:
+    get:
+      tags: [Purchases]
+      security: [{ BearerAuth: [] }]
+      summary: My purchases
+      responses:
+        '200':
+          description: Array of your purchases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PurchaseOut"
+
+  /dashboard/:
+    get:
+      tags: [Dashboard]
+      security: [{ BearerAuth: [] }]
+      summary: User dashboard/history
+      responses:
+        '200':
+          description: User history
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserHistory"
+
+security: []
+
