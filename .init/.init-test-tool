@@ -1,0 +1,4 @@
+{
+    "command": "pytest",
+    "working_directory": "/home/kavia/workspace/code-generation/bookexchange-hub-118396-118405/bookswap_backend"
+}
